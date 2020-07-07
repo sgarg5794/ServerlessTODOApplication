@@ -3,32 +3,32 @@ service:
 
 plugins:
   - serverless-webpack
-  - serverless-plugin-tracing
   - serverless-iam-roles-per-function
+  - serverless-plugin-tracing
 
 provider:
   name: aws
-  runtime: nodejs8.10
+  runtime: nodejs12.x
 
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'us-east-2'}
-  
+
   tracing:
     lambda: true
     apiGateway: true
-  
+
   environment:
-    TODO_ITEMS_TABLE_NAME: todo-${self:provider.stage}
-    TODO_ITEMS_CREATED_AT_INDEX: todo-created-at-idx
-    IMAGES_BUCKET: todo-images-${self:provider.stage}
-    SIGNED_URL_EXPIRY: 600
+    TODO_ITEMS_TABLE_NAME: TodoItems-${self:provider.stage}
+    TODO_ITEMS_CREATED_AT_INDEX: TodoItemsCreatedAtIndex
+    ATTACHMENTS_BUCKET_NAME: todo-item-garg-${self:provider.stage}
+    SIGNED_URL_EXPIRY_SECONDS: 300
+    
 
 functions:
 
   Auth:
     handler: src/lambda/auth/auth0Authorizer.handler
 
-  # TODO: Configure this function
   GetTodos:
     handler: src/lambda/http/getTodos.handler
     events:
@@ -41,9 +41,8 @@ functions:
       - Effect: Allow
         Action:
           - dynamodb:Query
-        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}/index/${self:provider.environment.TODO_ITEMS_CREATED_AT_IDX}
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}/index/${self:provider.environment.TODO_ITEMS_CREATED_AT_INDEX}
 
-  # TODO: Configure this function
   CreateTodo:
     handler: src/lambda/http/createTodo.handler
     events:
@@ -56,11 +55,11 @@ functions:
             schema:
               application/json: ${file(src/requestValidators/create_todo_request.json)}
     iamRoleStatements:
-        - Effect: Allow
-          Action:
-            - dynamodb:PutItem
-          Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}/index/${self:provider.environment.TODO_ITEMS_CREATED_AT_IDX}
-  # TODO: Configure this function
+      - Effect: Allow
+        Action:
+          - dynamodb:PutItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}
+
   UpdateTodo:
     handler: src/lambda/http/updateTodo.handler
     events:
@@ -75,11 +74,10 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - dynamodb: GetItem
-          - dynamodb: UpdateItem
+          - dynamodb:GetItem
+          - dynamodb:UpdateItem
         Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}
 
-  # TODO: Configure this function
   DeleteTodo:
     handler: src/lambda/http/deleteTodo.handler
     events:
@@ -91,11 +89,10 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - dynamodb: GetItem
-          - dynamodb: DeleteItem
-        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}      
+          - dynamodb:GetItem
+          - dynamodb:DeleteItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}
 
-  # TODO: Configure this function
   GenerateUploadUrl:
     handler: src/lambda/http/generateUploadUrl.handler
     events:
@@ -107,18 +104,19 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - dynamodb: GetItem
-          - dynamodb: UpdateItem
+          - dynamodb:GetItem
+          - dynamodb:UpdateItem
         Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}
       - Effect: Allow
         Action:
-          - s3: GetObject
-          - s3: PutObject
-        Resource: arn:aws:s3:::${self:provider.provider.environment.ATTACHMENT_BUCKET_NAME}/*
-        
+          - s3:GetObject
+          - s3:PutObject
+        Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENTS_BUCKET_NAME}/*
 
 resources:
   Resources:
+    
+    # TodoItems DynamoDB table
     TodoItemsTable:
       Type: AWS::DynamoDB::Table
       Properties:
@@ -151,7 +149,7 @@ resources:
     AttachmentsBucket:
       Type: AWS::S3::Bucket
       Properties:
-        BucketName: ${self:provider.environment.IMAGES_BUCKET}
+        BucketName: ${self:provider.environment.ATTACHMENTS_BUCKET_NAME}
         CorsConfiguration:
           CorsRules:
             -
@@ -180,6 +178,5 @@ resources:
               Principal: "*"
               Action: 
                 - s3:GetObject
-              Resource: arn:aws:s3:::${self:provider.environment.IMAGES_BUCKET}/*
+              Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENTS_BUCKET_NAME}/*
         Bucket: !Ref AttachmentsBucket
-    # TODO: Add any necessary AWS resources
