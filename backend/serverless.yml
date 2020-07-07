@@ -18,8 +18,8 @@ provider:
     apiGateway: true
   
   environment:
-    TODO_TBL: todo-${self:provider.stage}
-    TASKS_CREATED_AT_IDX: todo-created-at-idx
+    TODO_ITEMS_TABLE_NAME: todo-${self:provider.stage}
+    TODO_ITEMS_CREATED_AT_INDEX: todo-created-at-idx
     IMAGES_BUCKET: todo-images-${self:provider.stage}
     SIGNED_URL_EXPIRY: 600
 
@@ -151,7 +151,7 @@ resources:
     AttachmentsBucket:
       Type: AWS::S3::Bucket
       Properties:
-        BucketName: ${self:provider.environment.ATTACHMENTS_BUCKET_NAME}
+        BucketName: ${self:provider.environment.IMAGES_BUCKET}
         CorsConfiguration:
           CorsRules:
             -
@@ -180,6 +180,6 @@ resources:
               Principal: "*"
               Action: 
                 - s3:GetObject
-              Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENTS_BUCKET_NAME}/*
+              Resource: arn:aws:s3:::${self:provider.environment.IMAGES_BUCKET}/*
         Bucket: !Ref AttachmentsBucket
     # TODO: Add any necessary AWS resources
