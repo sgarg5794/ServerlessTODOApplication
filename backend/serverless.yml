@@ -3,6 +3,7 @@ service:
 
 plugins:
   - serverless-webpack
+  - serverless-plugin-tracing
   - serverless-iam-roles-per-function
 
 provider:
@@ -10,7 +11,17 @@ provider:
   runtime: nodejs8.10
 
   stage: ${opt:stage, 'dev'}
-  region: ${opt:region, 'us-east-1'}
+  region: ${opt:region, 'us-east-2'}
+  
+  tracing:
+    lambda: true
+    apiGateway: true
+  
+  environment:
+    TODO_TBL: todo-${self:provider.stage}
+    TASKS_CREATED_AT_IDX: todo-created-at-idx
+    IMAGES_BUCKET: todo-images-${self:provider.stage}
+    SIGNED_URL_EXPIRY: 600
 
 functions:
 
@@ -22,42 +33,153 @@ functions:
     handler: src/lambda/http/getTodos.handler
     events:
       - http:
+          authorizer: Auth
           method: get
           path: todos
+          cors: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:Query
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}/index/${self:provider.environment.TODO_ITEMS_CREATED_AT_IDX}
 
   # TODO: Configure this function
-  GetTodos:
   CreateTodo:
     handler: src/lambda/http/createTodo.handler
     events:
       - http:
+          authorizer: Auth
           method: post
           path: todos
-
+          cors: true
+          request:
+            schema:
+              application/json: ${file(src/requestValidators/create_todo_request.json)}
+    iamRoleStatements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+          Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}/index/${self:provider.environment.TODO_ITEMS_CREATED_AT_IDX}
   # TODO: Configure this function
   UpdateTodo:
     handler: src/lambda/http/updateTodo.handler
     events:
       - http:
+          authorizer: Auth
           method: patch
           path: todos/{todoId}
+          cors: true
+          request:
+            schema:
+              application/json: ${file(src/requestValidators/update_todo_request.json)}
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb: GetItem
+          - dynamodb: UpdateItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}
 
   # TODO: Configure this function
   DeleteTodo:
     handler: src/lambda/http/deleteTodo.handler
     events:
       - http:
+          authorizer: Auth
           method: delete
           path: todos/{todoId}
+          cors: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb: GetItem
+          - dynamodb: DeleteItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}      
 
   # TODO: Configure this function
   GenerateUploadUrl:
     handler: src/lambda/http/generateUploadUrl.handler
     events:
       - http:
+          authorizer: Auth
           method: post
           path: todos/{todoId}/attachment
+          cors: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb: GetItem
+          - dynamodb: UpdateItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODO_ITEMS_TABLE_NAME}
+      - Effect: Allow
+        Action:
+          - s3: GetObject
+          - s3: PutObject
+        Resource: arn:aws:s3:::${self:provider.provider.environment.ATTACHMENT_BUCKET_NAME}/*
+        
 
 resources:
   Resources:
+    TodoItemsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.TODO_ITEMS_TABLE_NAME}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: todoId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+          - AttributeName: todoId
+            KeyType: RANGE
+        # LSI - Useful in getting all the items for a user sorted by creation date
+        LocalSecondaryIndexes:
+          - IndexName: ${self:provider.environment.TODO_ITEMS_CREATED_AT_INDEX}
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        
+    # A Bucket to store attachments for todo items
+    AttachmentsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.ATTACHMENTS_BUCKET_NAME}
+        CorsConfiguration:
+          CorsRules:
+            -
+              AllowedOrigins: 
+                - "*"
+              AllowedHeaders:
+                - "*"
+              AllowedMethods:
+                - GET
+                - PUT
+                - DELETE
+                - POST
+                - HEAD
+              MaxAge: 3000
+
+    # Policy to allow reading attachments from the bucket
+    AttachmentsBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        PolicyDocument:
+          Id: AttachmentsBucketPolicy
+          Version: "2012-10-17"
+          Statement:
+            - Sid: PublicReadForGetBucketObjects
+              Effect: Allow
+              Principal: "*"
+              Action: 
+                - s3:GetObject
+              Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENTS_BUCKET_NAME}/*
+        Bucket: !Ref AttachmentsBucket
     # TODO: Add any necessary AWS resources
